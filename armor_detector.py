@@ -75,20 +75,22 @@ def process_image(image):
     # remove some noise
     blur_image = cv2.medianBlur(masked_image, 5)
 
-    # color thresholding
-    s_binary = hsv_select(blur_image, thresh=(0, 60), color='s')
-    gray_binary = gray_threshold(blur_image, thresh=(190,255))
+    # color threshold
+    gray_binary = gray_threshold(blur_image, thresh=(190, 255))
+    # local threshold
+    gray_image = cv2.cvtColor(masked_image, cv2.COLOR_RGB2GRAY)
+    threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
 
     # combined two binary images
-    combined = np.zeros_like(s_binary)
-    combined[(gray_binary == 1) & (s_binary == 1)] = 255
+    combined = np.zeros_like(gray_binary)
+    combined[((gray_binary == 1) | (threshold == 255))] = 255
 
     # blob dectector for circle
     detector = cv2.SimpleBlobDetector_create(blob_params)
     keypoints = detector.detect(combined)
 
     # draw the detected circles
-    im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255,255,0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     for keypoint in keypoints:
         cv2.circle(im_with_keypoints, (int(keypoint.pt[0]), int(keypoint.pt[1])), 7, (255, 255, 0), -1)
 
@@ -105,12 +107,12 @@ def configure_params():
 
     # Filter by Area.
     params.filterByArea = True
-    params.minArea = 100
+    params.minArea = 200
     params.maxArea = 5000
 
     # Filter by Circularity
     params.filterByCircularity = True
-    params.minCircularity = 0.3
+    params.minCircularity = 0.7
 
     # Filter by Convexity
     params.filterByConvexity = True
