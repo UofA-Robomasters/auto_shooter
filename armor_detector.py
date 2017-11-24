@@ -60,6 +60,26 @@ def gray_threshold(image, thresh=(0, 255)):
     binary_output[(gray > thresh[0]) & (gray <= thresh[1])] = 1
     return binary_output
 
+
+def color_judge(image, relative_thresh=30, color_thresh=100, pixel_thresh=60, pixel_ratio=2):
+    r_channel = image[:, :, 0]
+    g_channel = image[:, :, 1]
+    b_channel = image[:, :, 2]
+    r_binary = np.zeros_like(r_channel)
+    r_binary[(r_channel > g_channel) & (r_channel - g_channel > relative_thresh) & (r_channel > b_channel) & (
+    r_channel - b_channel > relative_thresh) & (r_channel > color_thresh)] = 1
+    b_binary = np.zeros_like(r_channel)
+    b_binary[(b_channel > g_channel) & (b_channel - g_channel > relative_thresh) & (b_channel > r_channel) & (
+    b_channel - r_channel > relative_thresh) & (b_channel > color_thresh)] = 1
+    r_pixel = r_binary.sum()
+    b_pixel = b_binary.sum()
+    if r_pixel > pixel_thresh and (b_pixel == 0 or r_pixel / b_pixel > pixel_ratio):
+        return "r"
+    elif b_pixel > pixel_thresh and (r_pixel == 0 or b_pixel / r_pixel > pixel_ratio):
+        return "b"
+    else:
+        return "None"
+
 def process_image(image):
     # resize input images to given given dimensions
     image = cv2.resize(image, (1280, 720))
@@ -92,7 +112,19 @@ def process_image(image):
     # draw the detected circles
     im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     for keypoint in keypoints:
-        cv2.circle(im_with_keypoints, (int(keypoint.pt[0]), int(keypoint.pt[1])), 7, (255, 255, 0), -1)
+        x = int(keypoint.pt[0])
+        y = int(keypoint.pt[1])
+        half_width = int(keypoint.size + 20)
+        half_height = (keypoint.size + 20) // 2
+        crop_image = image[int(y - half_height): int(y + half_height), int(x - half_width): int(x + half_width)]
+        # color judge
+        judge_result = color_judge(crop_image, 30, 100, 60, 2)
+        if judge_result == "r":
+            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (255, 0, 0), -1)
+        elif judge_result == "b":
+            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (0, 0, 255), -1)
+        else:
+            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (255, 255, 0), -1)
 
     # draw the region of interest
     cv2.rectangle(im_with_keypoints, (x_, y_), (x_ + w_, y_ + h_), (0, 255, 0), 5)
