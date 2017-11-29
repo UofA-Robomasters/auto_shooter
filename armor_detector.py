@@ -107,61 +107,6 @@ def draw_circle(image, x, y, size, color):
     return image
 
 
-def process_image(image):
-    # resize input images to given given dimensions
-    image = cv2.resize(image, (1280, 720))
-
-    # crop out the region of interest
-    x_ = 200
-    y_ = 100
-    w_ = 850
-    h_ = 400
-    vertices = np.array([[(x_, y_ + h_), (x_, y_), (x_ + w_, y_), (x_ + w_, y_ + h_)]], dtype=np.int32)
-    masked_image = region_of_interest(image, vertices)
-
-    # remove some noise
-    blur_image = cv2.medianBlur(masked_image, 5)
-
-    # color threshold
-    gray_binary = gray_threshold(blur_image, thresh=(190, 255))
-    # local threshold
-    gray_image = cv2.cvtColor(masked_image, cv2.COLOR_RGB2GRAY)
-    threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
-
-    # combined two binary images
-    combined = np.zeros_like(gray_binary)
-    combined[((gray_binary == 1) | (threshold == 255))] = 255
-
-    # blob detector for circle
-    detector = cv2.SimpleBlobDetector_create(blob_params)
-    keypoints = detector.detect(combined)
-
-    # draw the detected circles
-    im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    for keypoint in keypoints:
-        # extract coordinates
-        x = int(keypoint.pt[0])
-        y = int(keypoint.pt[1])
-        # adaptive size according to the distance (size of the blob)
-        half_width = int(keypoint.size + 20)
-        half_height = (keypoint.size + 20) // 2
-        # crop the region of interest
-        crop_image = image[int(y - half_height): int(y + half_height), int(x - half_width): int(x + half_width)]
-        # color judge
-        judge_result = color_judge(crop_image, 30, 100, 60, 2)
-        # draw circles with different colors
-        if judge_result == "r":
-            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (255, 0, 0), -1)
-        elif judge_result == "b":
-            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (0, 0, 255), -1)
-        else:
-            cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (255, 255, 0), -1)
-
-    # draw the region of interest
-    cv2.rectangle(im_with_keypoints, (x_, y_), (x_ + w_, y_ + h_), (0, 255, 0), 5)
-
-    return im_with_keypoints
-
 def configure_params(filterByArea, minArea, maxArea, filterbyCircularity, minCircularity, filterByConvexity, minConvexity, filterByInertia, minInertiaRatio, maxInertiaRatio,):
     params = cv2.SimpleBlobDetector_Params()
     # Change thresholds
@@ -192,22 +137,20 @@ def configure_params(filterByArea, minArea, maxArea, filterbyCircularity, minCir
     return params
 
 
-def bound_x(x):
-    if x < 0:
-        return 0
-    elif x > 1280:
-        return 1280
-    else:
-        return int(x)
+def bound_image_x(x):
+    return int(max(0, min(x, 1280)))
 
 
-def bound_y(y):
-    if y < 0:
-        return 0
-    elif y > 720:
-        return 720
-    else:
-        return int(y)
+def bound_image_y(y):
+    return int(max(0, min(y, 720)))
+
+
+def bound_masked_x(x):
+    return int(max(0, min(x, w_)))
+
+
+def bound_masked_y(y):
+    return int(max(0, min(y, h_)))
 
 
 class Armour():
@@ -242,21 +185,25 @@ def process_image(image):
     # resize input images to given given dimensions
     image = cv2.resize(image, (1280, 720))
     # crop out the region of interest
-    masked_image = region_of_interest(image, vertices)
+    # masked_image = region_of_interest(image, vertices)
+#     plt.imshow(image)
+    masked_image = image[y_:y_+h_, x_:x_+w_]
+#     print(x_, y_, w_, h_)
+#     plt.imshow(masked_image)
     # remove some noise
     masked_image = cv2.medianBlur(masked_image, 5)
     # global color thresholding
-    s_binary = hsv_select(image, thresh=(0, 60), color='s')
     gray_binary = gray_threshold(masked_image, thresh=(190, 255))
     # local gray thresholding
     gray_image = cv2.cvtColor(masked_image, cv2.COLOR_RGB2GRAY)
     threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
     # combined two binary images
-    combined = np.zeros_like(s_binary)
+    combined = np.zeros_like(gray_image)
     combined[((gray_binary == 1) | (threshold == 255))] = 255
 
     # armour detection
     this_armour_list = []
+    im_with_keypoints = image
 
     if armour_list == [] or frame_cnt % 30 == 0:
         global_search = True
@@ -268,11 +215,15 @@ def process_image(image):
             # crop the local image out
             half_width = int(armour.size + 20)
             half_height = int((armour.size + 20) // 2)
-            y1 = bound_y(armour.y - half_height)
-            y2 = bound_y(armour.y + half_height)
-            x1 = bound_x(armour.x - half_width)
-            x2 = bound_x(armour.x + half_width)
+            y1 = bound_masked_y(armour.y - half_height - y_)
+            y2 = bound_masked_y(armour.y + half_height - y_)
+            x1 = bound_masked_x(armour.x - half_width - x_)
+            x2 = bound_masked_x(armour.x + half_width - x_)
             crop_combined = combined[y1:y2, x1:x2]
+            y1 = bound_image_y(armour.y - half_height)
+            y2 = bound_image_y(armour.y + half_height)
+            x1 = bound_image_x(armour.x - half_width)
+            x2 = bound_image_x(armour.x + half_width)
             crop_image = image[y1:y2, x1:x2]
             keypoints = easier_detector.detect(crop_combined)
             # find the biggest keypoint (highest possibility)
@@ -284,33 +235,30 @@ def process_image(image):
                     largest_keypoint = keypoint
             # lower threshold
             judge_result = color_judge(crop_image, 20, 80, 50, 2)
-            if largest_keypoint != None and judge_result == armour.color:
+            if largest_keypoint is not None and judge_result == armour.color:
                 x = int(largest_keypoint.pt[0])
                 y = int(largest_keypoint.pt[1])
                 this_armour_list.append(Armour(x1 + x, y1 + y, largest_keypoint.size, judge_result))
                 armour_found += 1
-        if armour_found != total_armour:
-            global_search = True
+        # if armour_found != total_armour:
+        #     global_search = True
         else:
-            im_with_keypoints = image
             cv2.putText(im_with_keypoints, "Tracking", (500, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
     # global search
     if global_search:
         # blob dectector for circle
         keypoints = bolb_detector.detect(combined)
         # draw the detected circles
-        im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0),
-                                              cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
         cv2.putText(im_with_keypoints, "Searching", (500, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
         for keypoint in keypoints:
-            x = int(keypoint.pt[0])
-            y = int(keypoint.pt[1])
+            x = int(keypoint.pt[0] + x_)
+            y = int(keypoint.pt[1] + y_)
             half_width = int(keypoint.size + 10)
             half_height = (keypoint.size + 10) // 2
-            y1 = bound_y(y - half_height)
-            y2 = bound_y(y + half_height)
-            x1 = bound_x(x - half_width)
-            x2 = bound_x(x + half_width)
+            y1 = bound_image_y(y - half_height)
+            y2 = bound_image_y(y + half_height)
+            x1 = bound_image_x(x - half_width)
+            x2 = bound_image_x(x + half_width)
             crop_image = image[y1:y2, x1:x2]
             # color judge
             judge_result = color_judge(crop_image, 30, 100, 60, 2)
@@ -339,7 +287,7 @@ if __name__ == "__main__":
     w_ = 830
     h_ = 380
     frame_cnt = 0
-    vertices = np.array([[(x_, y_ + h_), (x_, y_), (x_ + w_, y_), (x_ + w_, y_ + h_)]], dtype=np.int32)
+    # vertices = np.array([[(x_, y_ + h_), (x_, y_), (x_ + w_, y_), (x_ + w_, y_ + h_)]], dtype=np.int32)
     video_output1 = 'test_output.mp4'
     video_input1 = VideoFileClip('videos/test_video.mpeg')#.subclip(1, 2)
     processed_video = video_input1.fl_image(process_image)
