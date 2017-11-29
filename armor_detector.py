@@ -62,23 +62,50 @@ def gray_threshold(image, thresh=(0, 255)):
 
 
 def color_judge(image, relative_thresh=30, color_thresh=100, pixel_thresh=60, pixel_ratio=2):
+    """
+    Decide if this image contains red LEDs or blue LEDs or neither
+    :param image: cropped image containing the armor bard and the LEDs
+    :param relative_thresh: The threshold for r/b channel - g channel
+    :param color_thresh: The threshold for r/b channel
+    :param pixel_thresh: The threshold for the number of pixel pass
+    :param pixel_ratio: The threshold for the number of r/b pixels divided by the number of b/r pixels
+    :return: one of three strings. "r" - red team, "b" - blue team, "None" - neither
+    """
+    # seperate color channels
     r_channel = image[:, :, 0]
     g_channel = image[:, :, 1]
     b_channel = image[:, :, 2]
+
+    # Red team?
     r_binary = np.zeros_like(r_channel)
-    r_binary[(r_channel > g_channel) & (r_channel - g_channel > relative_thresh) & (r_channel > b_channel) & (
-    r_channel - b_channel > relative_thresh) & (r_channel > color_thresh)] = 1
+    r_binary[(r_channel > g_channel) & (r_channel - g_channel > relative_thresh) & (r_channel > b_channel) & (r_channel - b_channel > relative_thresh) & (r_channel > color_thresh)] = 1
+
+    # Blue team?
     b_binary = np.zeros_like(r_channel)
-    b_binary[(b_channel > g_channel) & (b_channel - g_channel > relative_thresh) & (b_channel > r_channel) & (
-    b_channel - r_channel > relative_thresh) & (b_channel > color_thresh)] = 1
+    b_binary[(b_channel > g_channel) & (b_channel - g_channel > relative_thresh) & (b_channel > r_channel) & (b_channel - r_channel > relative_thresh) & (b_channel > color_thresh)] = 1
+
+    # count the pixels passed
     r_pixel = r_binary.sum()
     b_pixel = b_binary.sum()
+
+    # decide which team does it belongs to
     if r_pixel > pixel_thresh and (b_pixel == 0 or r_pixel / b_pixel > pixel_ratio):
         return "r"
     elif b_pixel > pixel_thresh and (r_pixel == 0 or b_pixel / r_pixel > pixel_ratio):
         return "b"
     else:
         return "None"
+
+
+def draw_circle(image, x, y, size, color):
+    if color == "r":
+        cv2.circle(image, (x, y), int(size / 2), (255, 0, 0), -1)
+    elif color == "b":
+        cv2.circle(image, (x, y), int(size / 2), (0, 0, 255), -1)
+    else:
+        cv2.circle(image, (x, y), int(size / 2), (255, 255, 0), -1)
+    return image
+
 
 def process_image(image):
     # resize input images to given given dimensions
@@ -105,20 +132,24 @@ def process_image(image):
     combined = np.zeros_like(gray_binary)
     combined[((gray_binary == 1) | (threshold == 255))] = 255
 
-    # blob dectector for circle
+    # blob detector for circle
     detector = cv2.SimpleBlobDetector_create(blob_params)
     keypoints = detector.detect(combined)
 
     # draw the detected circles
     im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
     for keypoint in keypoints:
+        # extract coordinates
         x = int(keypoint.pt[0])
         y = int(keypoint.pt[1])
+        # adaptive size according to the distance (size of the blob)
         half_width = int(keypoint.size + 20)
         half_height = (keypoint.size + 20) // 2
+        # crop the region of interest
         crop_image = image[int(y - half_height): int(y + half_height), int(x - half_width): int(x + half_width)]
         # color judge
         judge_result = color_judge(crop_image, 30, 100, 60, 2)
+        # draw circles with different colors
         if judge_result == "r":
             cv2.circle(im_with_keypoints, (x, y), int(keypoint.size / 2), (255, 0, 0), -1)
         elif judge_result == "b":
@@ -131,38 +162,184 @@ def process_image(image):
 
     return im_with_keypoints
 
-def configure_params():
+def configure_params(filterByArea, minArea, maxArea, filterbyCircularity, minCircularity, filterByConvexity, minConvexity, filterByInertia, minInertiaRatio, maxInertiaRatio,):
     params = cv2.SimpleBlobDetector_Params()
     # Change thresholds
-    params.minThreshold = 0;
-    params.maxThreshold = 255;
+    params.minThreshold = 0
+    params.maxThreshold = 255
 
     # Filter by Area.
-    params.filterByArea = True
-    params.minArea = 200
-    params.maxArea = 5000
+    params.filterByArea = filterByArea
+    params.minArea = minArea
+    params.maxArea = maxArea
 
     # Filter by Circularity
-    params.filterByCircularity = True
-    params.minCircularity = 0.7
+    params.filterByCircularity = filterbyCircularity
+    params.minCircularity = minCircularity
 
     # Filter by Convexity
-    params.filterByConvexity = True
-    params.minConvexity = 0.5
+    params.filterByConvexity = filterByConvexity
+    params.minConvexity = minConvexity
 
     # Filter by Inertia
-    params.filterByInertia = True
-    params.minInertiaRatio = 0.1
-    params.maxInertiaRatio = 1.0
+    params.filterByInertia = filterByInertia
+    params.minInertiaRatio = minInertiaRatio
+    params.maxInertiaRatio = maxInertiaRatio
 
     params.filterByColor = False
     params.blobColor = 255
 
     return params
 
+
+def bound_x(x):
+    if x < 0:
+        return 0
+    elif x > 1280:
+        return 1280
+    else:
+        return int(x)
+
+
+def bound_y(y):
+    if y < 0:
+        return 0
+    elif y > 720:
+        return 720
+    else:
+        return int(y)
+
+
+class Armour():
+    def __init__(self, x, y, size, color):
+        # coordinate
+        self.x = x
+        self.y = y
+        # size
+        self.size = size
+        # red or blue
+        self.color = color
+        # displacement tolerance
+        self.x_thresh = 10
+        self.y_thresh = 5
+
+    def is_same(self, x, y, color):
+        if color == self.color and abs(x - self.prev_x) < self.x_thresh and abs(y - self.prev_y) < self.y_thresh:
+            return True
+        else:
+            return False
+
+    def update(self, x, y, size, color):
+        self.x = x
+        self.y = y
+        self.size = size
+        self.color = color
+
+
+def process_image(image):
+    global armour_list, global_search, frame_cnt
+    frame_cnt += 1
+    # resize input images to given given dimensions
+    image = cv2.resize(image, (1280, 720))
+    # crop out the region of interest
+    masked_image = region_of_interest(image, vertices)
+    # remove some noise
+    masked_image = cv2.medianBlur(masked_image, 5)
+    # global color thresholding
+    s_binary = hsv_select(image, thresh=(0, 60), color='s')
+    gray_binary = gray_threshold(masked_image, thresh=(190, 255))
+    # local gray thresholding
+    gray_image = cv2.cvtColor(masked_image, cv2.COLOR_RGB2GRAY)
+    threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
+    # combined two binary images
+    combined = np.zeros_like(s_binary)
+    combined[((gray_binary == 1) | (threshold == 255))] = 255
+
+    # armour detection
+    this_armour_list = []
+
+    if armour_list == [] or frame_cnt % 30 == 0:
+        global_search = True
+    # tracking
+    if not global_search:
+        armour_found = 0
+        total_armour = len(armour_list)
+        for armour in armour_list:
+            # crop the local image out
+            half_width = int(armour.size + 20)
+            half_height = int((armour.size + 20) // 2)
+            y1 = bound_y(armour.y - half_height)
+            y2 = bound_y(armour.y + half_height)
+            x1 = bound_x(armour.x - half_width)
+            x2 = bound_x(armour.x + half_width)
+            crop_combined = combined[y1:y2, x1:x2]
+            crop_image = image[y1:y2, x1:x2]
+            keypoints = easier_detector.detect(crop_combined)
+            # find the biggest keypoint (highest possibility)
+            largest_keypoint = None
+            largest_size = 0
+            for keypoint in keypoints:
+                if keypoint.size > largest_size:
+                    largest_size = keypoint.size
+                    largest_keypoint = keypoint
+            # lower threshold
+            judge_result = color_judge(crop_image, 20, 80, 50, 2)
+            if largest_keypoint != None and judge_result == armour.color:
+                x = int(largest_keypoint.pt[0])
+                y = int(largest_keypoint.pt[1])
+                this_armour_list.append(Armour(x1 + x, y1 + y, largest_keypoint.size, judge_result))
+                armour_found += 1
+        if armour_found != total_armour:
+            global_search = True
+        else:
+            im_with_keypoints = image
+            cv2.putText(im_with_keypoints, "Tracking", (500, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
+    # global search
+    if global_search:
+        # blob dectector for circle
+        keypoints = bolb_detector.detect(combined)
+        # draw the detected circles
+        im_with_keypoints = cv2.drawKeypoints(image, keypoints, np.array([]), (255, 255, 0),
+                                              cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        cv2.putText(im_with_keypoints, "Searching", (500, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
+        for keypoint in keypoints:
+            x = int(keypoint.pt[0])
+            y = int(keypoint.pt[1])
+            half_width = int(keypoint.size + 10)
+            half_height = (keypoint.size + 10) // 2
+            y1 = bound_y(y - half_height)
+            y2 = bound_y(y + half_height)
+            x1 = bound_x(x - half_width)
+            x2 = bound_x(x + half_width)
+            crop_image = image[y1:y2, x1:x2]
+            # color judge
+            judge_result = color_judge(crop_image, 30, 100, 60, 2)
+            this_armour_list.append(Armour(x, y, keypoint.size, judge_result))
+        global_search = False
+    # update the armour list
+    armour_list = this_armour_list
+    # draw colored circles
+    for armour in armour_list:
+        im_with_keypoints = draw_circle(im_with_keypoints, armour.x, armour.y, armour.size, armour.color)
+    # draw the region of interest
+    cv2.rectangle(im_with_keypoints, (x_, y_), (x_ + w_, y_ + h_), (0, 255, 0), 5)
+    return im_with_keypoints
+
+
 if __name__ == "__main__":
     start_time = time.time()
-    blob_params = configure_params()
+    blob_params = configure_params(True, 200, 5000, True, 0.7, True, 0.7, True, 0.1, 1.0)
+    bolb_detector = cv2.SimpleBlobDetector_create(blob_params)
+    easier_params = configure_params(True, 150, 5000, True, 0.5, True, 0.5, True, 0.1, 1.0)
+    easier_detector = cv2.SimpleBlobDetector_create(easier_params)
+    armour_list = []
+    global_search = True
+    x_ = 200
+    y_ = 100
+    w_ = 830
+    h_ = 380
+    frame_cnt = 0
+    vertices = np.array([[(x_, y_ + h_), (x_, y_), (x_ + w_, y_), (x_ + w_, y_ + h_)]], dtype=np.int32)
     video_output1 = 'test_output.mp4'
     video_input1 = VideoFileClip('videos/test_video.mpeg')#.subclip(1, 2)
     processed_video = video_input1.fl_image(process_image)
