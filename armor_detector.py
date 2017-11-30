@@ -185,11 +185,7 @@ def process_image(image):
     # resize input images to given given dimensions
     image = cv2.resize(image, (1280, 720))
     # crop out the region of interest
-    # masked_image = region_of_interest(image, vertices)
-#     plt.imshow(image)
     masked_image = image[y_:y_+h_, x_:x_+w_]
-#     print(x_, y_, w_, h_)
-#     plt.imshow(masked_image)
     # remove some noise
     masked_image = cv2.medianBlur(masked_image, 5)
     # global color thresholding
@@ -201,30 +197,29 @@ def process_image(image):
     combined = np.zeros_like(gray_image)
     combined[((gray_binary == 1) | (threshold == 255))] = 255
 
-    # armour detection
-    this_armour_list = []
-    im_with_keypoints = image
-
+    # first time or refresh needed
     if armour_list == [] or frame_cnt % 30 == 0:
         global_search = True
     # tracking
     if not global_search:
-        armour_found = 0
-        total_armour = len(armour_list)
+        this_armour_list = []
+        im_with_keypoints = image
         for armour in armour_list:
             # crop the local image out
             half_width = int(armour.size + 20)
             half_height = int((armour.size + 20) // 2)
-            y1 = bound_masked_y(armour.y - half_height - y_)
-            y2 = bound_masked_y(armour.y + half_height - y_)
-            x1 = bound_masked_x(armour.x - half_width - x_)
-            x2 = bound_masked_x(armour.x + half_width - x_)
-            crop_combined = combined[y1:y2, x1:x2]
             y1 = bound_image_y(armour.y - half_height)
             y2 = bound_image_y(armour.y + half_height)
             x1 = bound_image_x(armour.x - half_width)
             x2 = bound_image_x(armour.x + half_width)
             crop_image = image[y1:y2, x1:x2]
+
+            y1 = bound_masked_y(armour.y - half_height - y_)
+            y2 = bound_masked_y(armour.y + half_height - y_)
+            x1 = bound_masked_x(armour.x - half_width - x_)
+            x2 = bound_masked_x(armour.x + half_width - x_)
+            crop_combined = combined[y1:y2, x1:x2]
+            # armour detection
             keypoints = easier_detector.detect(crop_combined)
             # find the biggest keypoint (highest possibility)
             largest_keypoint = None
@@ -238,14 +233,16 @@ def process_image(image):
             if largest_keypoint is not None and judge_result == armour.color:
                 x = int(largest_keypoint.pt[0])
                 y = int(largest_keypoint.pt[1])
-                this_armour_list.append(Armour(x1 + x, y1 + y, largest_keypoint.size, judge_result))
-                armour_found += 1
-        # if armour_found != total_armour:
-        #     global_search = True
+                this_armour_list.append(Armour(x + x1 + x_, y + y1 + y_, largest_keypoint.size, judge_result))
+        # not all armour tracked
+        if len(this_armour_list) != len(armour_list):
+            global_search = True
         else:
             cv2.putText(im_with_keypoints, "Tracking", (500, 90), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 4)
     # global search
     if global_search:
+        this_armour_list = []
+        im_with_keypoints = image
         # blob dectector for circle
         keypoints = bolb_detector.detect(combined)
         # draw the detected circles
@@ -287,7 +284,6 @@ if __name__ == "__main__":
     w_ = 830
     h_ = 380
     frame_cnt = 0
-    # vertices = np.array([[(x_, y_ + h_), (x_, y_), (x_ + w_, y_), (x_ + w_, y_ + h_)]], dtype=np.int32)
     video_output1 = 'test_output.mp4'
     video_input1 = VideoFileClip('videos/test_video.mpeg')#.subclip(1, 2)
     processed_video = video_input1.fl_image(process_image)
