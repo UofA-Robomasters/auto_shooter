@@ -57,7 +57,7 @@ def hsv_select(image, thresh=(0, 255), color='s'):
 def gray_threshold(image, thresh=(0, 255)):
     gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
     binary_output = np.zeros_like(gray)
-    binary_output[(gray > thresh[0]) & (gray <= thresh[1])] = 1
+    binary_output[(gray > thresh[0]) & (gray <= thresh[1])] = 255
     return binary_output
 
 
@@ -195,7 +195,7 @@ def process_image(image):
     threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
     # combined two binary images
     combined = np.zeros_like(gray_image)
-    combined[((gray_binary == 1) | (threshold == 255))] = 255
+    combined[((gray_binary == 255) | (threshold == 255))] = 255
 
     # first time or refresh needed
     if armour_list == [] or frame_cnt % 30 == 0:
