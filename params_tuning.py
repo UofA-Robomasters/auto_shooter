@@ -20,6 +20,11 @@ def draw_circle(image, x, y, size, color):
     return image
 
 
+def image_change(x):
+    global image_changed
+    image_changed = True
+
+
 def binary_change(x):
     global binary_changed
     binary_changed = True
@@ -38,22 +43,6 @@ def bound_masked_y(y):
     return int(max(0, min(y, h_)))
 
 
-width = 1280
-height = 720
-crop = True
-if crop:
-    x_ = 200
-    y_ = 100
-    w_ = 830
-    h_ = 380
-    width = int(w_ / 2)
-    height = int(h_ / 2)
-
-original_image = load_image('test1.png')
-original_image = cv2.resize(original_image, (1280, 720))
-if crop:
-    original_image = original_image[y_:y_ + h_, x_:x_ + w_]
-output_original = cv2.resize(original_image, (width, height))
 cv2.namedWindow('colored', cv2.WINDOW_NORMAL)
 cv2.namedWindow('binary', cv2.WINDOW_NORMAL)
 # cv2.namedWindow('debug', cv2.WINDOW_NORMAL)
@@ -65,6 +54,7 @@ cv2.createTrackbar('thresh kernel (2x+1)', 'binary', 55, 100, binary_change)
 cv2.createTrackbar('adaptive thresh (-x)', 'binary', 60, 100, binary_change)
 
 # filterByArea, minArea, maxArea, filterbyCircularity, minCircularity, filterByConvexity, minConvexity, filterByInertia, minInertiaRatio, maxInertiaRatio
+cv2.createTrackbar('image index', 'colored', 0, 4, image_change)
 cv2.createTrackbar('filter by area (T/F)', 'colored', 1, 1, blob_change)
 cv2.createTrackbar('min area (10x)', 'colored', 20, 100, blob_change)
 cv2.createTrackbar('max area (100x)', 'colored', 50, 100, blob_change)
@@ -76,15 +66,34 @@ cv2.createTrackbar('filter by inertia (T/F)', 'colored', 1, 1, blob_change)
 cv2.createTrackbar('min inertia (x/100)', 'colored', 10, 100, blob_change)
 cv2.createTrackbar('max inertia (x/100)', 'colored', 100, 100, blob_change)
 
+image_changed = True
 binary_changed = True
 blob_changed = True
+
+width = 1280
+height = 720
+crop = True
+if crop:
+    x_ = 200
+    y_ = 100
+    w_ = 830
+    h_ = 380
+    width = int(w_ / 2)
+    height = int(h_ / 2)
 
 while True:
     k = cv2.waitKey(1) & 0xFF
     if k == 27:
         break
 
-    if binary_changed:
+    if image_changed:
+        image_index = cv2.getTrackbarPos('image index', 'colored') + 1
+        original_image = load_image('test' + str(image_index) + '.png')
+        if crop:
+            original_image = original_image[y_:y_ + h_, x_:x_ + w_]
+        output_original = cv2.resize(original_image, (width, height))
+
+    if image_changed or binary_changed:
         blur_kernel = 2 * cv2.getTrackbarPos('blur kernel (2x+1)', 'binary') + 1
         min_gray_thresh = cv2.getTrackbarPos('min gray thresh', 'binary')
         max_gray_thresh = cv2.getTrackbarPos('max gray thresh', 'binary')
@@ -111,7 +120,7 @@ while True:
         output_binary = np.concatenate((np.concatenate((output_global_thresh, output_local_thresh), axis=0),
                                         np.concatenate((output_combined, output_gray), axis=0)), axis=1)
 
-    if blob_changed:
+    if image_changed or blob_changed:
         filterByArea = 1 == cv2.getTrackbarPos('filter by area (T/F)', 'colored')
         minArea = 10 * cv2.getTrackbarPos('min area (10x)', 'colored')
         maxArea = 100 * cv2.getTrackbarPos('max area (100x)', 'colored')
@@ -131,7 +140,7 @@ while True:
                                        filterByConvexity, minConvexity, filterByInertia, minInertia, maxInertia)
         bolb_detector = cv2.SimpleBlobDetector_create(blob_params)
 
-    if binary_changed or blob_changed:
+    if image_changed or binary_changed or blob_changed:
         armour_list = []
         im_with_keypoints = original_image.copy()
         # blob detector for circle
@@ -156,6 +165,8 @@ while True:
         output_keypoints = cv2.resize(im_with_keypoints, (width, height))
         output_colored = np.concatenate((output_original, output_keypoints), axis=0)
 
+    if image_changed:
+        image_changed = False
     if binary_changed:
         binary_changed = False
     if blob_changed:
@@ -164,3 +175,5 @@ while True:
     cv2.imshow('colored', output_colored)
     cv2.imshow('binary', output_binary)
     # cv2.imshow('debug', crop_image)
+
+cv2.destroyAllWindows()
