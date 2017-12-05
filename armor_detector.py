@@ -54,23 +54,13 @@ def hsv_select(image, thresh=(0, 255), color='s'):
     return binary_output
 
 
-def gray_threshold(image, thresh=(0, 255)):
-    gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+def gray_threshold(gray, thresh=(0, 255)):
     binary_output = np.zeros_like(gray)
     binary_output[(gray > thresh[0]) & (gray <= thresh[1])] = 255
     return binary_output
 
 
-def color_judge(image, relative_thresh=30, color_thresh=100, pixel_thresh=60, pixel_ratio=2):
-    """
-    Decide if this image contains red LEDs or blue LEDs or neither
-    :param image: cropped image containing the armor bard and the LEDs
-    :param relative_thresh: The threshold for r/b channel - g channel
-    :param color_thresh: The threshold for r/b channel
-    :param pixel_thresh: The threshold for the number of pixel pass
-    :param pixel_ratio: The threshold for the number of r/b pixels divided by the number of b/r pixels
-    :return: one of three strings. "r" - red team, "b" - blue team, "None" - neither
-    """
+def color_judge(image, primary_thresh=200, secondary_thresh=80, pixel_thresh=60, pixel_ratio=2):
     # seperate color channels
     r_channel = image[:, :, 0]
     g_channel = image[:, :, 1]
@@ -78,11 +68,11 @@ def color_judge(image, relative_thresh=30, color_thresh=100, pixel_thresh=60, pi
 
     # Red team?
     r_binary = np.zeros_like(r_channel)
-    r_binary[(r_channel > g_channel) & (r_channel - g_channel > relative_thresh) & (r_channel > b_channel) & (r_channel - b_channel > relative_thresh) & (r_channel > color_thresh)] = 1
+    r_binary[(r_channel > primary_thresh) & (b_channel < secondary_thresh)] = 255
 
     # Blue team?
-    b_binary = np.zeros_like(r_channel)
-    b_binary[(b_channel > g_channel) & (b_channel - g_channel > relative_thresh) & (b_channel > r_channel) & (b_channel - r_channel > relative_thresh) & (b_channel > color_thresh)] = 1
+    b_binary = np.zeros_like(b_channel)
+    b_binary[(b_channel > primary_thresh) & (r_channel < secondary_thresh)] = 255
 
     # count the pixels passed
     r_pixel = r_binary.sum()
@@ -107,7 +97,7 @@ def draw_circle(image, x, y, size, color):
     return image
 
 
-def configure_params(filterByArea, minArea, maxArea, filterbyCircularity, minCircularity, filterByConvexity, minConvexity, filterByInertia, minInertiaRatio, maxInertiaRatio,):
+def configure_params(filterByArea, minArea, maxArea, filterbyCircularity, minCircularity, filterByConvexity, minConvexity, filterByInertia, minInertiaRatio, maxInertiaRatio):
     params = cv2.SimpleBlobDetector_Params()
     # Change thresholds
     params.minThreshold = 0
@@ -189,9 +179,9 @@ def process_image(image):
     # remove some noise
     masked_image = cv2.medianBlur(masked_image, 5)
     # global color thresholding
-    gray_binary = gray_threshold(masked_image, thresh=(190, 255))
-    # local gray thresholding
     gray_image = cv2.cvtColor(masked_image, cv2.COLOR_RGB2GRAY)
+    gray_binary = gray_threshold(gray_image, thresh=(190, 255))
+    # local gray thresholding
     threshold = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 111, -60)
     # combined two binary images
     combined = np.zeros_like(gray_image)
@@ -229,7 +219,7 @@ def process_image(image):
                     largest_size = keypoint.size
                     largest_keypoint = keypoint
             # lower threshold
-            judge_result = color_judge(crop_image, 20, 80, 50, 2)
+            judge_result = color_judge(crop_image, 150, 100, 50, 2)
             if largest_keypoint is not None and judge_result == armour.color:
                 x = int(largest_keypoint.pt[0])
                 y = int(largest_keypoint.pt[1])
@@ -258,7 +248,7 @@ def process_image(image):
             x2 = bound_image_x(x + half_width)
             crop_image = image[y1:y2, x1:x2]
             # color judge
-            judge_result = color_judge(crop_image, 30, 100, 60, 2)
+            judge_result = color_judge(crop_image, 200, 100, 60, 2)
             this_armour_list.append(Armour(x, y, keypoint.size, judge_result))
         global_search = False
     # update the armour list
